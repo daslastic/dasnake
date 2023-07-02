@@ -1,18 +1,28 @@
 use macroquad::prelude::*;
 
-const WIDTH: i32 = 640;
-const HEIGHT: i32 = 320;
-const INIT_LENGTH: usize = 3;
+const WIDTH: i16 = 640;
+const HEIGHT: i16 = 320;
+
+type Point = (i16, i16);
+
 fn window_conf() -> Conf {
     Conf {
         window_title: "dasnake".to_owned(),
         fullscreen: false,
         sample_count: 0,
-        window_width: WIDTH,
-        window_height: HEIGHT,
+        window_width: WIDTH as i32,
+        window_height: HEIGHT as i32,
         window_resizable: false,
         ..Default::default()
     }
+}
+
+#[derive(PartialEq, Eq)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 enum State {
@@ -23,46 +33,40 @@ enum State {
 }
 
 struct Snake {
-    pos: IVec2,
-    last_pos: Vec<IVec2>,
+    pos: Point,
+    last_pos: Vec<Point>,
     len: usize,
     color: Color,
-    next: IVec2,
-    last_key: Option<KeyCode>,
+    next: Point,
+    last_dir: Direction,
     super_speed: bool,
 }
 impl Snake {
-    pub fn new(pos: IVec2, color: Color) -> Self {
+    pub fn new(pos: Point, color: Color) -> Self {
         Self {
             pos,
             last_pos: Vec::new(),
             len: 3,
             color,
-            next: IVec2::new(1, 0),
-            last_key: None,
+            next: (1, 0),
+            last_dir: Direction::Right,
             super_speed: false,
         }
     }
 }
 
-impl Snake {
-    pub fn last_pressed(&self, key: KeyCode) -> bool {
-        self.last_key == Some(key)
-    }
-}
-
 struct Game {
-    canvas: IVec2,
-    canvas_size: IVec2,
-    tile_size: i32,
-    apples: Vec<IVec2>,
+    canvas: Point,
+    canvas_size: Point,
+    tile_size: i16,
+    apples: Vec<Point>,
     speed: f64,
     state: State,
 }
 
 impl Game {
-    pub fn new(canvas: IVec2, tile_size: i32, speed: f64) -> Self {
-        let canvas_size = IVec2::new(canvas.x / tile_size, canvas.y / tile_size);
+    pub fn new(canvas: Point, tile_size: i16, speed: f64) -> Self {
+        let canvas_size = (canvas.0 / tile_size, canvas.1 / tile_size);
         Self {
             canvas,
             canvas_size,
@@ -73,13 +77,13 @@ impl Game {
         }
     }
     pub fn spawn_apple(&mut self, snake: &Snake) {
-        let pos = IVec2::new(
-            rand::gen_range(0, self.canvas_size.x),
-            rand::gen_range(0, self.canvas_size.y),
+        let pos = (
+            rand::gen_range(0, self.canvas_size.0 as i32) as i16,
+            rand::gen_range(0, self.canvas_size.1 as i32) as i16,
         );
 
         // if entire screen is full -- small possibility this is wrong lol
-        if snake.last_pos.len() > (self.canvas_size.x * self.canvas_size.y - 1) as usize {
+        if snake.last_pos.len() > (self.canvas_size.0 * self.canvas_size.1 - 1) as usize {
             self.state = State::Win;
             return;
         }
@@ -98,22 +102,27 @@ impl Game {
     }
 
     pub fn restart(&mut self, snake: &mut Snake) {
-        snake.len = INIT_LENGTH;
+        snake.len = 3;
         self.apples.clear();
         self.spawn_apple(snake);
-        snake.pos = IVec2::ZERO;
+        snake.pos = (0, 0);
         snake.last_pos.clear();
-        snake.next = IVec2::new(1, 0);
-        snake.last_key = None;
+        snake.next = (1, 0);
+        snake.last_dir = Direction::Right;
         self.state = State::Playing;
     }
 }
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut game = Game::new(IVec2::new(WIDTH, HEIGHT), 20, 0.04);
-    let mut snake = Snake::new(IVec2::ZERO, GREEN);
+    let mut game = Game::new((WIDTH, HEIGHT), 20, 0.08);
+    let mut snake = Snake::new((0, 0), GREEN);
     let mut last_update = get_time();
+
+    let up = vec![KeyCode::Up, KeyCode::W, KeyCode::K];
+    let down = vec![KeyCode::Down, KeyCode::S, KeyCode::J];
+    let left = vec![KeyCode::Left, KeyCode::A, KeyCode::H];
+    let right = vec![KeyCode::Right, KeyCode::D, KeyCode::L];
 
     game.spawn_apple(&snake);
 
@@ -130,33 +139,30 @@ async fn main() {
                 }
             }
             State::Playing => {
-                // render
                 {
-                    // player
+                    // if(snake.last_key.is_some()
                     draw_rectangle(
-                        (game.tile_size * snake.pos.x) as f32,
-                        (game.tile_size * snake.pos.y) as f32,
+                        (game.tile_size * snake.pos.0) as f32,
+                        (game.tile_size * snake.pos.1) as f32,
                         game.tile_size as f32,
                         game.tile_size as f32,
                         snake.color,
                     );
 
-                    // player tail
                     for pos in snake.last_pos.iter() {
                         draw_rectangle(
-                            (game.tile_size * pos.x) as f32,
-                            (game.tile_size * pos.y) as f32,
+                            (game.tile_size * pos.0) as f32,
+                            (game.tile_size * pos.1) as f32,
                             game.tile_size as f32,
                             game.tile_size as f32,
                             snake.color,
                         );
                     }
 
-                    // apples
                     for pos in game.apples.iter() {
                         draw_rectangle(
-                            (game.tile_size * pos.x) as f32,
-                            (game.tile_size * pos.y) as f32,
+                            (game.tile_size * pos.0) as f32,
+                            (game.tile_size * pos.1) as f32,
                             game.tile_size as f32,
                             game.tile_size as f32,
                             RED,
@@ -164,33 +170,25 @@ async fn main() {
                     }
                 }
 
-                // update snake
                 if elapsed >= game.speed || (snake.super_speed && elapsed >= game.speed / 2.) {
-                    snake.pos += snake.next;
+                    snake.pos.0 += snake.next.0;
+                    snake.pos.1 += snake.next.1;
 
-                    // lose
                     if snake.last_pos.contains(&snake.pos) {
                         game.state = State::Lose;
                         continue;
                     }
 
-                    // out of bounds
-                    snake.pos.x = (snake.pos.x + game.canvas_size.x) % game.canvas_size.x;
-                    snake.pos.y = (snake.pos.y + game.canvas_size.y) % game.canvas_size.y;
+                    snake.pos = (
+                        (snake.pos.0 + game.canvas_size.0) % game.canvas_size.0,
+                        (snake.pos.1 + game.canvas_size.1) % game.canvas_size.1,
+                    );
 
                     last_update = get_time();
 
-                    // increase length
-                    {
-                        let mut i = 0;
-                        snake.last_pos.insert(0, snake.pos);
-                        snake.last_pos.retain(|_| {
-                            i += 1;
-                            i < snake.len
-                        })
-                    }
+                    snake.last_pos.insert(0, snake.pos);
+                    snake.last_pos.truncate(snake.len);
 
-                    // apple collision
                     game.apples.retain(|apple_pos| {
                         if apple_pos.eq(&snake.pos) {
                             snake.len += 1;
@@ -200,24 +198,23 @@ async fn main() {
                         }
                     });
 
-                    if game.apples.len() == 0 {
+                    if game.apples.is_empty() {
                         game.spawn_apple(&snake);
                     }
                 }
 
-                // input snake
-                if is_key_down(KeyCode::W) && !snake.last_pressed(KeyCode::S) {
-                    snake.next = IVec2::new(0, -1);
-                    snake.last_key = Some(KeyCode::W);
-                } else if is_key_down(KeyCode::S) && !snake.last_pressed(KeyCode::W) {
-                    snake.next = IVec2::new(0, 1);
-                    snake.last_key = Some(KeyCode::S);
-                } else if is_key_down(KeyCode::A) && !snake.last_pressed(KeyCode::D) {
-                    snake.next = IVec2::new(-1, 0);
-                    snake.last_key = Some(KeyCode::A);
-                } else if is_key_down(KeyCode::D) && !snake.last_pressed(KeyCode::A) {
-                    snake.next = IVec2::new(1, 0);
-                    snake.last_key = Some(KeyCode::D);
+                if is_keys_down(&up) && snake.last_dir != Direction::Down {
+                    snake.next = (0, -1);
+                    snake.last_dir = Direction::Up;
+                } else if is_keys_down(&down) && snake.last_dir != Direction::Up {
+                    snake.next = (0, 1);
+                    snake.last_dir = Direction::Down;
+                } else if is_keys_down(&left) && snake.last_dir != Direction::Right {
+                    snake.next = (-1, 0);
+                    snake.last_dir = Direction::Left;
+                } else if is_keys_down(&right) && snake.last_dir != Direction::Left {
+                    snake.next = (1, 0);
+                    snake.last_dir = Direction::Right;
                 }
 
                 snake.super_speed = is_key_down(KeyCode::Space);
@@ -240,12 +237,16 @@ async fn main() {
     }
 }
 
-pub fn text(say: &str, font_size: u16, canvas: IVec2) {
+fn text(say: &str, font_size: u16, canvas: Point) {
     draw_text(
         say,
-        (canvas.x as f32) / 2. - get_text_center(say, None, font_size, 1.0, 0.0).x,
-        (canvas.y / 2) as f32,
+        (canvas.0 as f32) / 2. - get_text_center(say, None, font_size, 1.0, 0.0).x,
+        (canvas.1 / 2) as f32,
         font_size as f32,
         WHITE,
     );
+}
+
+fn is_keys_down(keys: &[KeyCode]) -> bool {
+    keys.iter().any(|&key| is_key_down(key))
 }
